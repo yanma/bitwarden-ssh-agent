@@ -39,10 +39,6 @@ def get_session(session: str) -> str:
         check=True,
     )
     session = proc_session.stdout
-    logging.info(
-        'To re-use this BitWarden session run: export BW_SESSION="%s"',
-        session,
-    )
     return session
 
 
@@ -292,7 +288,6 @@ if __name__ == "__main__":
         try:
             logging.info("Getting Bitwarden session")
             session = get_session(args.session)
-            logging.debug("Session = %s", session)
 
             logging.info("Getting folder list")
             folder_id = get_folders(session, args.foldername)
