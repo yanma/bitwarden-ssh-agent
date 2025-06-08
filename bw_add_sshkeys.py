@@ -90,6 +90,7 @@ def add_ssh_keys(
     items: list[dict[str, Any]],
     keyname: str,
     pwkeyname: str,
+    save_to_disk: bool = False,
 ) -> None:
     """
     Function to attempt to get keys from a vault item
@@ -116,10 +117,13 @@ def add_ssh_keys(
                     'No "%s" field found for item %s', pwkeyname, item["name"]
                 )
 
-        try:
-            ssh_add(ssh_key, private_key_pw)
-        except subprocess.SubprocessError:
-            logging.warning('Could not add key "%s" to the SSH agent', item["name"])
+        if save_to_disk:
+            save_key_to_ssh_dir(ssh_key, item["name"])
+        else:
+            try:
+                ssh_add(ssh_key, private_key_pw)
+            except subprocess.SubprocessError:
+                logging.warning('Could not add key "%s" to the SSH agent', item["name"])
 
 
 def fetch_key(session: str, item: dict[str, Any], keyname: str) -> str:
@@ -231,6 +235,37 @@ def ssh_add(ssh_key: str, key_pw: str = "") -> None:
     )
 
 
+def save_key_to_ssh_dir(ssh_key: str, key_name: str) -> None:
+    """
+    Saves the SSH key directly to ~/.ssh directory
+    """
+    import os
+    import stat
+
+    ssh_dir = os.path.expanduser("~/.ssh")
+
+    # Create ~/.ssh directory if it doesn't exist
+    if not os.path.exists(ssh_dir):
+        os.makedirs(ssh_dir, mode=0o700)
+        logging.info("Created ~/.ssh directory")
+
+    # Sanitize key name for filename
+    safe_key_name = "".join(c for c in key_name if c.isalnum() or c in "._-")
+    key_path = os.path.join(ssh_dir, safe_key_name)
+
+    # Write the key to file
+    with open(key_path, "w", encoding="utf-8") as key_file:
+        # Ensure the key ends with a newline (like ssh-keygen)
+        if not ssh_key.endswith("\n"):
+            ssh_key += "\n"
+        key_file.write(ssh_key)
+
+    # Set proper permissions (readable/writable by owner only)
+    os.chmod(key_path, stat.S_IRUSR | stat.S_IWUSR)
+
+    logging.info("SSH key saved to %s", key_path)
+
+
 if __name__ == "__main__":
 
     def parse_args() -> argparse.Namespace:
@@ -268,6 +303,11 @@ if __name__ == "__main__":
             default="",
             help="session key of bitwarden",
         )
+        parser.add_argument(
+            "--save-to-disk",
+            action="store_true",
+            help="save SSH keys directly to ~/.ssh directory instead of adding to ssh-agent",
+        )
 
         return parser.parse_args()
 
@@ -295,8 +335,17 @@ if __name__ == "__main__":
             logging.info("Getting folder items")
             items = folder_items(session, folder_id)
 
-            logging.info("Attempting to add keys to ssh-agent")
-            add_ssh_keys(session, items, args.customfield, args.passphrasefield)
+            if args.save_to_disk:
+                logging.info("Saving keys to ~/.ssh directory")
+            else:
+                logging.info("Attempting to add keys to ssh-agent")
+            add_ssh_keys(
+                session,
+                items,
+                args.customfield,
+                args.passphrasefield,
+                args.save_to_disk,
+            )
         except RuntimeError as error:
             logging.critical(str(error))
         except subprocess.CalledProcessError as error:
